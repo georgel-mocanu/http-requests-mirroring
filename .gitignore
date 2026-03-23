@@ -1,0 +1,9 @@
+.DS_Store
+**/.DS_Store
+
+http-requests-mirroring
+
+prod-query-api.yaml
+prod-upload-api.yaml
+acc-query-api.yaml
+acc-upload-api.yaml
