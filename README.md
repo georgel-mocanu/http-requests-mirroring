@@ -66,12 +66,12 @@ resp.Body.Close()
 
 ```bash
 # Basic usage (same as original)
-./http-requests-mirroring-optimized \
+./http-requests-mirroring \
   -destination "https://target-server.com" \
   -filter-request-port 80
 
 # With connection pool tuning
-./http-requests-mirroring-optimized \
+./http-requests-mirroring \
   -destination "https://target-server.com" \
   -filter-request-port 80 \
   -max-idle-conns 2000 \
@@ -80,7 +80,7 @@ resp.Body.Close()
   -request-timeout 30s
 
 # With percentage filtering (unchanged from original)
-./http-requests-mirroring-optimized \
+./http-requests-mirroring \
   -destination "https://target-server.com" \
   -filter-request-port 80 \
   -percentage 50 \
@@ -109,13 +109,15 @@ resp.Body.Close()
 | `-max-concurrent-requests` | 10000 | Max concurrent forwarded request goroutines |
 | `-max-body-size` | 10485760 | Max request body size in bytes (10MB) |
 | `-snap-len` | 65535 | Packet capture snapshot length in bytes |
+| `-shutdown-timeout` | 10s | Max time to wait for in-flight requests during shutdown |
+| `-max-buffered-pages` | 50000 | Max TCP reassembly pages buffered in memory (0=unlimited) |
 
 ## Building
 
 ```bash
-# Update dependencies and build
+# Update dependencies and build (CGO_ENABLED=1 is required for libpcap bindings)
 go mod tidy
-go build -o http-requests-mirroring main.go
+CGO_ENABLED=1 go build -o http-requests-mirroring main.go
 ```
 
 ### Running locally
@@ -143,7 +145,7 @@ go build -o http-requests-mirroring main.go
 2. **Body Draining**: `io.Copy(io.Discard, resp.Body)` ensures the full response is consumed
 3. **Tuned Pool**: Higher limits for idle connections prevent pool exhaustion
 4. **Proper Timeouts**: Per-request `context.WithTimeout` and client-level timeouts prevent resource exhaustion
-5. **Thread-Safe Sampling**: Mutex-protected `rand` source prevents data races in percentage-based sampling
+5. **Thread-Safe Sampling**: Uses `math/rand/v2` which is inherently safe for concurrent use
 6. **Goroutine Limiter**: Semaphore channel caps concurrent forwarded requests to prevent OOM
 7. **Body Size Limit**: `io.LimitReader` prevents oversized POST bodies from exhausting memory
 8. **Graceful Shutdown**: Signal handling (SIGINT/SIGTERM) flushes the assembler before exit

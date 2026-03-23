@@ -3,6 +3,8 @@
 
 http-requests-mirroring
 
+build.log
+
 prod-query-api.yaml
 prod-upload-api.yaml
 acc-query-api.yaml

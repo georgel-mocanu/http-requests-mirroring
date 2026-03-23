@@ -9,7 +9,7 @@ all: build
 # Build the optimized binary
 build:
 	go mod tidy
-	go build -o http-requests-mirroring main.go
+	CGO_ENABLED=1 go build -o http-requests-mirroring main.go
 	@echo "✅ Build successful! Binary: ./http-requests-mirroring"
 	@ls -lh http-requests-mirroring
 

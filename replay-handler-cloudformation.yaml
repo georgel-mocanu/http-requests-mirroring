@@ -279,8 +279,8 @@ Resources:
                 export HOME=~
                 yum update -y
                 yum install git -y
-                # dependency of github.com/gopacket/gopacket
-                yum install libpcap-devel -y
+                # dependency of github.com/gopacket/gopacket (gcc required for CGo)
+                yum install libpcap-devel gcc -y
                 #
                 # Install Go 1.25 from golang.org (yum version may be too old)
                 GO_VERSION=1.25.8
@@ -304,7 +304,7 @@ Resources:
                 git clone --depth 1 https://github.com/georgel-mocanu/http-requests-mirroring.git /tmp/mirroring || { echo "Git clone failed"; exit 1; }
                 cd /tmp/mirroring
                 go mod tidy || echo "go mod tidy failed (continuing)"
-                go build -o /root/go/bin/http-requests-mirroring main.go || { echo "Go build failed"; exit 1; }
+                CGO_ENABLED=1 go build -o /root/go/bin/http-requests-mirroring main.go || { echo "Go build failed"; exit 1; }
                 cd /root
                 rm -rf /tmp/mirroring
               - 'Fn::Sub': |
