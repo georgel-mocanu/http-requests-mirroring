@@ -14,6 +14,8 @@ prod-query-api2.yaml
 prod-upload-api2.yaml
 acc-query-api2.yaml
 acc-upload-api2.yaml
+old/*
+system.log
 
 replay007.pcap
 replay008.pcap

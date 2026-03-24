@@ -50,7 +50,7 @@ resp.Body.Close()
 - TCP keep-alive probes configured
 - TLS handshake timeout
 - Response header timeout
-- HTTP/2 support enabled
+- HTTP/2 disabled (HTTP/1.1 keep-alive used for connection reuse)
 
 ## Expected Performance Improvements
 

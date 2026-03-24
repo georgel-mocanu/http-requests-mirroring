@@ -27,12 +27,12 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gopacket/gopacket"
-	"github.com/gopacket/gopacket/examples/util"
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcap"
 	"github.com/gopacket/gopacket/tcpassembly"
@@ -69,6 +69,10 @@ var shutdownCancel context.CancelFunc
 var crc64Table = crc64.MakeTable(0xC96C5795D7870F42)
 
 var forwardSem chan struct{}
+
+var bodyPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
 
 // hopByHopHeaders are removed before forwarding per RFC 2616 section 13.5.1.
 var hopByHopHeaders = map[string]bool{
@@ -114,7 +118,7 @@ func initHTTPClient() {
 	transport := &http.Transport{
 		MaxIdleConns:        *maxIdleConns,
 		MaxIdleConnsPerHost: *maxIdleConnsPerHost,
-		MaxConnsPerHost:     0,
+		MaxConnsPerHost:     *maxIdleConnsPerHost * 2,
 		IdleConnTimeout:     *idleConnTimeout,
 
 		DialContext: (&net.Dialer{
@@ -187,16 +191,24 @@ func (h *httpStream) run() {
 		reqSourceIP := h.net.Src().String()
 		reqDestinationPort := h.transport.Dst().String()
 
-		body, bErr := io.ReadAll(io.LimitReader(req.Body, *maxBodySize+1))
+		bodyBuf := bodyPool.Get().(*bytes.Buffer)
+		bodyBuf.Reset()
+		_, bErr := io.Copy(bodyBuf, io.LimitReader(req.Body, *maxBodySize+1))
 		req.Body.Close()
 		if bErr != nil {
 			rlBodyRead.logf("Error reading request body from %v: %v", reqSourceIP, bErr)
+			bodyPool.Put(bodyBuf)
 			continue
 		}
-		if int64(len(body)) > *maxBodySize {
-			rlBodyOversize.logf("Dropping oversized request body (%d bytes) from %v", len(body), reqSourceIP)
+		if int64(bodyBuf.Len()) > *maxBodySize {
+			rlBodyOversize.logf("Dropping oversized request body (%d bytes) from %v", bodyBuf.Len(), reqSourceIP)
+			bodyPool.Put(bodyBuf)
 			continue
 		}
+
+		body := make([]byte, bodyBuf.Len())
+		copy(body, bodyBuf.Bytes())
+		bodyPool.Put(bodyBuf)
 
 		select {
 		case forwardSem <- struct{}{}:
@@ -213,29 +225,43 @@ func (h *httpStream) run() {
 // scanToHTTPMethod reads through the buffer byte-by-byte looking for a line
 // that starts with a valid HTTP method. When found, the data up to that point
 // is consumed and the reader is positioned at the start of the method line.
-func scanToHTTPMethod(buf *bufio.Reader) bool {
-	methods := [][]byte{
-		[]byte("GET "), []byte("POST "), []byte("PUT "),
-		[]byte("DELETE "), []byte("PATCH "), []byte("HEAD "), []byte("OPTIONS "),
+var httpMethods = [][]byte{
+	[]byte("GET "), []byte("POST "), []byte("PUT "),
+	[]byte("DELETE "), []byte("PATCH "), []byte("HEAD "), []byte("OPTIONS "),
+}
+
+var httpMethodFirstBytes [256]bool
+
+func init() {
+	for _, m := range httpMethods {
+		httpMethodFirstBytes[m[0]] = true
 	}
-	const maxScan = 16 * 1024 * 1024 // don't scan more than 16MB
-	scanned := 0
-	for scanned < maxScan {
-		// Peek ahead to check for a method prefix at the current position.
-		for _, m := range methods {
-			peeked, err := buf.Peek(len(m))
-			if err != nil {
-				return false
-			}
-			if bytes.Equal(peeked, m) {
-				return true
+}
+
+func scanToHTTPMethod(buf *bufio.Reader) bool {
+	const maxScan = 1 * 1024 * 1024
+	for scanned := 0; scanned < maxScan; scanned++ {
+		b, err := buf.Peek(1)
+		if err != nil {
+			return false
+		}
+		if httpMethodFirstBytes[b[0]] {
+			for _, m := range httpMethods {
+				if b[0] != m[0] {
+					continue
+				}
+				peeked, err := buf.Peek(len(m))
+				if err != nil {
+					return false
+				}
+				if bytes.Equal(peeked, m) {
+					return true
+				}
 			}
 		}
-		// Discard one byte and try again at the next position.
 		if _, err := buf.Discard(1); err != nil {
 			return false
 		}
-		scanned++
 	}
 	return false
 }
@@ -346,7 +372,6 @@ func openTCPClient(ctx context.Context) {
 }
 
 func main() {
-	defer util.Run()()
 	var handle *pcap.Handle
 	var err error
 

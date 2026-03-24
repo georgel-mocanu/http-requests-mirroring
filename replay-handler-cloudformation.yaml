@@ -308,7 +308,7 @@ Resources:
                 cd /root
                 rm -rf /tmp/mirroring
               - 'Fn::Sub': |
-                  ip link add vxlan0 type vxlan id ${TrafficMirroringVNI} dev eth0 dstport 4789
+                  ip link add vxlan0 type vxlan id ${TrafficMirroringVNI} dev eth0 dstport 4789 nolearning
                   ip link set vxlan0 up
                   
                   cat > /usr/local/bin/replay-handler.sh <<'WRAPPER'
