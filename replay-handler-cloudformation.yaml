@@ -131,19 +131,19 @@ Parameters:
   MaxIdleConns:
     Description: Maximum number of idle connections across all hosts (optimized version).
     Type: Number
-    Default: 1000
+    Default: 200
     MinValue: 10
     MaxValue: 10000
   MaxIdleConnsPerHost:
     Description: Maximum number of idle connections per destination host (optimized version).
     Type: Number
-    Default: 500
+    Default: 100
     MinValue: 2
     MaxValue: 5000
   IdleConnTimeout:
     Description: Idle connection timeout in seconds (optimized version).
     Type: Number
-    Default: 90
+    Default: 180
     MinValue: 10
     MaxValue: 300
   RequestTimeout:

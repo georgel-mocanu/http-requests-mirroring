@@ -17,6 +17,5 @@ acc-upload-api2.yaml
 old/*
 system.log
 
-replay007.pcap
-replay008.pcap
+replay*.pcap
 replay-handler.log
