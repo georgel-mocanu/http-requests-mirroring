@@ -282,8 +282,8 @@ Resources:
                 # dependency of github.com/gopacket/gopacket (gcc required for CGo)
                 yum install libpcap-devel gcc -y
                 #
-                # Install Go 1.25 from golang.org (yum version may be too old)
-                GO_VERSION=1.25.8
+                # Install Go 1.26 from golang.org (yum version may be too old)
+                GO_VERSION=1.26.1
                 ARCH=$(uname -m)
                 if [ "$ARCH" = "aarch64" ]; then
                   GO_ARCH=arm64
@@ -328,6 +328,7 @@ Resources:
                     -max-body-size "${MaxBodySize}" \
                     -snap-len "${SnapLen}" \
                     -max-buffered-pages "${MaxBufferedPages}" \
+                    -flush-interval "2m" \
                     >> /var/log/replay-handler.log 2>&1
                   WRAPPER
                   chmod +x /usr/local/bin/replay-handler.sh

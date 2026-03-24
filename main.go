@@ -55,6 +55,7 @@ var maxBodySize = flag.Int64("max-body-size", 10*1024*1024, "Maximum request bod
 var snapLen = flag.Int("snap-len", 65535, "Packet capture snapshot length in bytes.")
 var shutdownTimeout = flag.Duration("shutdown-timeout", 10*time.Second, "Max time to wait for in-flight requests during shutdown.")
 var maxBufferedPages = flag.Int("max-buffered-pages", 50000, "Max TCP reassembly pages buffered in memory (0=unlimited).")
+var flushInterval = flag.Duration("flush-interval", 2*time.Minute, "How often to flush idle TCP connections, and the age threshold for flushing.")
 
 var httpClient *http.Client
 
@@ -88,6 +89,7 @@ type rateLimiter struct {
 
 var (
 	rlStreamRead    = &rateLimiter{}
+	rlStreamSkip    = &rateLimiter{}
 	rlBodyRead      = &rateLimiter{}
 	rlBodyOversize  = &rateLimiter{}
 	rlConcurrency   = &rateLimiter{}
@@ -126,7 +128,7 @@ func initHTTPClient() {
 
 		DisableKeepAlives:  false,
 		DisableCompression: true,
-		ForceAttemptHTTP2:  true,
+		ForceAttemptHTTP2:  false,
 	}
 
 	httpClient = &http.Client{
@@ -166,35 +168,76 @@ func (h *httpStream) run() {
 		if err == io.EOF {
 			return
 		} else if err != nil {
-			rlStreamRead.logf("Error reading HTTP request from %v -> %v: %v", h.net.Src(), h.net.Dst(), err)
-			tcpreader.DiscardBytesToEOF(&h.r)
-			return
-		} else {
-			reqSourceIP := h.net.Src().String()
-			reqDestinationPort := h.transport.Dst().String()
+			errMsg := err.Error()
+			if len(errMsg) > 200 {
+				errMsg = errMsg[:200] + "..."
+			}
+			rlStreamRead.logf("Error reading HTTP request from %v -> %v: %v", h.net.Src(), h.net.Dst(), errMsg)
+			// Instead of discarding the entire stream, try to scan forward
+			// to the next HTTP request line. This handles mid-stream starts
+			// after app restarts encountering pre-existing TCP connections.
+			if !scanToHTTPMethod(buf) {
+				tcpreader.DiscardBytesToEOF(&h.r)
+				return
+			}
+			rlStreamSkip.logf("Recovered stream from %v -> %v by scanning to next HTTP request", h.net.Src(), h.net.Dst())
+			continue
+		}
 
-			body, bErr := io.ReadAll(io.LimitReader(req.Body, *maxBodySize+1))
-			req.Body.Close()
-			if bErr != nil {
-				rlBodyRead.logf("Error reading request body from %v: %v", reqSourceIP, bErr)
-				continue
-			}
-			if int64(len(body)) > *maxBodySize {
-				rlBodyOversize.logf("Dropping oversized request body (%d bytes) from %v", len(body), reqSourceIP)
-				continue
-			}
+		reqSourceIP := h.net.Src().String()
+		reqDestinationPort := h.transport.Dst().String()
 
-			select {
-			case forwardSem <- struct{}{}:
-				go func() {
-					defer func() { <-forwardSem }()
-					forwardRequest(req, reqSourceIP, reqDestinationPort, body)
-				}()
-			default:
-				rlConcurrency.logf("Dropping request from %v: concurrency limit (%d) reached", reqSourceIP, *maxConcurrentRequests)
-			}
+		body, bErr := io.ReadAll(io.LimitReader(req.Body, *maxBodySize+1))
+		req.Body.Close()
+		if bErr != nil {
+			rlBodyRead.logf("Error reading request body from %v: %v", reqSourceIP, bErr)
+			continue
+		}
+		if int64(len(body)) > *maxBodySize {
+			rlBodyOversize.logf("Dropping oversized request body (%d bytes) from %v", len(body), reqSourceIP)
+			continue
+		}
+
+		select {
+		case forwardSem <- struct{}{}:
+			go func() {
+				defer func() { <-forwardSem }()
+				forwardRequest(req, reqSourceIP, reqDestinationPort, body)
+			}()
+		default:
+			rlConcurrency.logf("Dropping request from %v: concurrency limit (%d) reached", reqSourceIP, *maxConcurrentRequests)
 		}
 	}
+}
+
+// scanToHTTPMethod reads through the buffer byte-by-byte looking for a line
+// that starts with a valid HTTP method. When found, the data up to that point
+// is consumed and the reader is positioned at the start of the method line.
+func scanToHTTPMethod(buf *bufio.Reader) bool {
+	methods := [][]byte{
+		[]byte("GET "), []byte("POST "), []byte("PUT "),
+		[]byte("DELETE "), []byte("PATCH "), []byte("HEAD "), []byte("OPTIONS "),
+	}
+	const maxScan = 16 * 1024 * 1024 // don't scan more than 16MB
+	scanned := 0
+	for scanned < maxScan {
+		// Peek ahead to check for a method prefix at the current position.
+		for _, m := range methods {
+			peeked, err := buf.Peek(len(m))
+			if err != nil {
+				return false
+			}
+			if bytes.Equal(peeked, m) {
+				return true
+			}
+		}
+		// Discard one byte and try again at the next position.
+		if _, err := buf.Discard(1); err != nil {
+			return false
+		}
+		scanned++
+	}
+	return false
 }
 
 func forwardRequest(req *http.Request, reqSourceIP string, reqDestinationPort string, body []byte) {
@@ -365,7 +408,8 @@ func main() {
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	packets := packetSource.Packets()
-	flushTicker := time.NewTicker(30 * time.Second)
+	log.Printf("TCP reassembly flush interval: %v", *flushInterval)
+	flushTicker := time.NewTicker(*flushInterval)
 	defer flushTicker.Stop()
 
 	for {
@@ -404,7 +448,7 @@ func main() {
 			assembler.AssembleWithTimestamp(packet.NetworkLayer().NetworkFlow(), tcp, packet.Metadata().Timestamp)
 
 		case <-flushTicker.C:
-			assembler.FlushOlderThan(time.Now().Add(-30 * time.Second))
+			assembler.FlushOlderThan(time.Now().Add(-*flushInterval))
 		}
 	}
 }
