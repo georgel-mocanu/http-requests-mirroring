@@ -1,6 +1,20 @@
 # HTTP Requests Mirroring - Optimized Version
 
-This is an optimized version of the AWS http-requests-mirroring application with significant performance improvements focused on reducing TCP resets and improving connection efficiency.
+> **Based on [aws-samples/http-requests-mirroring](https://github.com/aws-samples/http-requests-mirroring)**
+> by Amazon Web Services, originally created for the AWS blog post
+> [Mirror production traffic to test environment with VPC Traffic Mirroring](https://aws.amazon.com/blogs/networking-and-content-delivery/mirror-production-traffic-to-test-environment-with-vpc-traffic-mirroring/).
+
+This is a modified and optimized fork of the original
+[aws-samples/http-requests-mirroring](https://github.com/aws-samples/http-requests-mirroring)
+application. The original project is licensed under the
+[BSD-3-Clause License](https://opensource.org/licenses/BSD-3-Clause), which
+permits redistribution and modification. This version retains the original
+license and copyright notices as required.
+
+The main focus of this fork is significant performance improvements aimed at
+reducing TCP resets and improving connection efficiency for high-throughput
+traffic mirroring scenarios. For a full side-by-side breakdown of every change,
+see [OPTIMIZATIONS.md](OPTIMIZATIONS.md).
 
 ## Key Optimizations
 
@@ -182,6 +196,20 @@ This application is designed to be deployed via the provided CloudFormation temp
 - Verify VXLAN interface: `ip link show vxlan0`
 - Restart the service: `systemctl restart replay-handler`
 
+## Acknowledgments
+
+This project is derived from
+[aws-samples/http-requests-mirroring](https://github.com/aws-samples/http-requests-mirroring),
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+The original application uses [gopacket](https://github.com/google/gopacket),
+Copyright (c) 2012 Google, Inc. and Copyright (c) 2009-2011 Andreas Krennmair.
+
 ## License
 
-BSD-3-Clause License (same as original)
+This project is licensed under the **BSD-3-Clause License**, the same license as
+the original project. See the [LICENSE](LICENSE) file for the full text.
+
+The BSD-3-Clause license permits redistribution and use in source and binary
+forms, with or without modification, provided that the original copyright
+notice, conditions, and disclaimer are retained.
